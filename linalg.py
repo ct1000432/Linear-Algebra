@@ -26,13 +26,16 @@ class Matrix():
 
     def __init__(self, array):
         """Initialize the matrix."""
-        m = len(array[0])
+        try:
+            m = len(array[0])
+        except IndexError:
+            m = 0
         for row in array:
             if len(row) != m:
                 raise NotRectangularError
         self.data = array
         self.data = [[col[i] for col in self.data]
-                     for i in range(0, len(array[0]))]
+                     for i in range(0, m)]
 
     def zero(m, n):
         """Initialize a zero matrix with dimension m * n."""
@@ -74,11 +77,17 @@ class Matrix():
 
     def m(self):
         """Return m."""
-        return self.dim()[0]
+        try:
+            return self.dim()[0]
+        except IndexError:
+            return 0
 
     def n(self):
         """Return n."""
-        return self.dim()[1]
+        try:
+            return self.dim()[1]
+        except IndexError:
+            return 0
 
     def t(self):
         """Take the transpose of A."""
@@ -105,6 +114,8 @@ class Matrix():
 
     def hjoin(self, b):
         """Join horizontally: [A B]."""
+        if type(b) is list:
+            return self.hjoin(Matrix([b]).t())
         return Matrix(self.data + b.data).t()
 
     def vjoin(self, b):
@@ -234,14 +245,101 @@ class Matrix():
 
     def solve(self, b):
         """Solve the system (self) * x = b."""
-        if type(b) is list:
-            B = Matrix([b]).t()
-        elif type(b) is Matrix:
-            B = b
-        else:
-            raise TypeError
-        A = self.hjoin(B)
+        A = self.hjoin(b)
+        A = A.rref()
         if A.vslice(0, self.m()) == Matrix.identity(self.m()):
-            return A.rref().vslice(self.m(), self.m() + 1)
+            return A.vslice(self.m(), self.m() + 1)
         else:
             raise NotInvertibleError
+
+    def pivotCols(self):
+        """Identify pivot columns."""
+        copy = self * 1
+        i = 0
+        pivotCols = []
+        for j in range(copy.n()):
+            if copy.redcol(i, j):
+                i += 1
+                pivotCols.append(j)
+            if i == self.m():
+                return pivotCols
+        return pivotCols
+
+    def col(self):
+        """Compute the column space."""
+        pc = self.pivotCols()
+        result = []
+        for col in pc:
+            result.append(self.data[col])
+        return VSpace(result, trust=True)
+
+    def indep(self):
+        """Return True if the columns of the matrix are independent."""
+        return (self.rank() == self.n())
+
+    def allZeros(row):
+        """Return True if a row is all zeros."""
+        for j in row:
+            if j != 0:
+                return False
+        return True
+
+    def stripZeroRows(self):
+        """Remove the zero rows from a matrix."""
+        rows = self.t().data
+        result = []
+        for row in rows:
+            if not Matrix.allZeros(row):
+                result.append(row)
+        return Matrix(result)
+
+    def null(self):
+        """Return the nullspace."""
+        pc = self.pivotCols()
+        r = self.rref().stripZeroRows().data
+        free = Matrix.zero(self.rank(), 0)
+        for j in range(len(r)):
+            if j not in pc:
+                free = free.hjoin(r[j])
+        width = free.n()
+        ident = Matrix.identity(width)
+        fRow = 0
+        iRow = 0
+        null = Matrix.zero(len(r), width)
+        for i in range(len(r)):
+            if i in pc:
+                for j in range(width):
+                    null[i, j] = -(free[fRow, j])
+                    fRow += 1
+            else:
+                for j in range(width):
+                    null[i, j] = ident[iRow, j]
+        return VSpace(null.data, trust=True)
+
+
+class VSpace():
+    """Vector space."""
+
+    def __init__(self, elements, trust=False):
+        """Initialize."""
+        if trust:
+            self.basis = elements
+        else:
+            A = Matrix(elements)
+            self.basis = A.t().col().basis
+
+    def dim(self):
+        """Return the dimension."""
+        return len(self.basis)
+
+    def __repr__(self):
+        """Input form."""
+        return "VSpace(" + self.basis.__repr__() + ")"
+
+    def b(self):
+        """Return the basis."""
+        return self.basis
+
+    def contains(self, x):
+        """Return True iff the vector space contains x."""
+        return (self.dim() == VSpace(self.basis + [x]).dim())
