@@ -1,7 +1,8 @@
 """Do linear algebra."""
 
 import numbers
-
+import math
+import unittest
 
 class DimensionError(Exception):
     """Dimensions of matrices don't match or matrix isn't square."""
@@ -9,7 +10,7 @@ class DimensionError(Exception):
     pass
 
 
-class NotRectangularError(Exception):
+class RaggedError(Exception):
     """The rows are not all the same length."""
 
     pass
@@ -21,21 +22,39 @@ class NotInvertibleError(Exception):
     pass
 
 
+class DepthError(Exception):
+    """The array is not of depth 1 or 2."""
+
+    pass
+
+
+def depth(array):
+    """Return the dimensions of an array, ensuring that it is rectangular."""
+    try:
+        first = depth(array[0])
+        for sub in array:
+            if depth(sub) != first:
+                raise RaggedError
+        return [len(array)] + first
+    except TypeError:
+        return []
+    except IndexError:
+        return [0]
+
+
 class Matrix():
     """This is a matrix."""
 
-    def __init__(self, array):
+    def __init__(self, data):
         """Initialize the matrix."""
-        try:
-            m = len(array[0])
-        except IndexError:
-            m = 0
-        for row in array:
-            if len(row) != m:
-                raise NotRectangularError
-        self.data = array
+        if len(depth(data)) == 2:
+            self.data = data
+        elif len(depth(data)) == 1:
+            self.data = [[item] for item in data]
+        else:
+            raise DepthError
         self.data = [[col[i] for col in self.data]
-                     for i in range(0, m)]
+                     for i in range(0, depth(self.data)[1])]
 
     def zero(m, n):
         """Initialize a zero matrix with dimension m * n."""
@@ -95,7 +114,11 @@ class Matrix():
 
     def __eq__(self, b):
         """Implement equality for all. Liberty too."""
-        return (self.data == b.data)
+        for i in range(self.m()):
+            for j in range(self.n()):
+                if math.fabs(self[i, j] - b[i, j]) > 10**-10:
+                    return False
+        return True
 
     def __neg__(self):
         """Implement negation."""
@@ -122,7 +145,7 @@ class Matrix():
         """Join vertically."""
         return Matrix(self.t().data + b.t().data)
 
-    def vslice(self, j0, j1):
+    def hslice(self, j0, j1):
         """Take a vertical slice from column j0 (incl.) to j1 (excl.)."""
         return Matrix(self.data[j0:j1]).t()
 
@@ -149,13 +172,12 @@ class Matrix():
         elif type(b) is Matrix:
             if not self.n() == b.m():
                 raise DimensionError
-            else:
-                data = Matrix.zero(self.m(), b.n()).t().data
-                for i in range(self.m()):
-                    for j in range(b.n()):
-                        data[i][j] = sum([(self[i, k] * b[k, j])
-                                          for k in range(self.n())])
-                return Matrix(data)
+            data = Matrix.zero(self.m(), b.n()).t().data
+            for i in range(self.m()):
+                for j in range(b.n()):
+                    data[i][j] = sum([(self[i, k] * b[k, j])
+                                      for k in range(self.n())])
+            return Matrix(data)
         else:
             print(type(b))
             raise TypeError
@@ -239,16 +261,16 @@ class Matrix():
             raise DimensionError
         A = self.hjoin(Matrix.identity(self.m()))
         A = A.rref()
-        if A.vslice(0, self.m()) != Matrix.identity(self.m()):
+        if A.hslice(0, self.m()) != Matrix.identity(self.m()):
             raise NotInvertibleError
-        return A.vslice(self.m(), 2*(self.m()))
+        return A.hslice(self.m(), 2*(self.m()))
 
     def solve(self, b):
         """Solve the system (self) * x = b."""
         A = self.hjoin(b)
         A = A.rref()
-        if A.vslice(0, self.m()) == Matrix.identity(self.m()):
-            return A.vslice(self.m(), self.m() + 1)
+        if A.hslice(0, self.m()) == Matrix.identity(self.m()):
+            return A.hslice(self.m(), self.m() + 1)
         else:
             raise NotInvertibleError
 
@@ -270,7 +292,7 @@ class Matrix():
         pc = self.pivotCols()
         result = []
         for col in pc:
-            result.append(self.data[col])
+            result.append(Matrix(self.data[col]))
         return VSpace(result, trust=True)
 
     def indep(self):
@@ -297,24 +319,53 @@ class Matrix():
         """Return the nullspace."""
         pc = self.pivotCols()
         r = self.rref().stripZeroRows().data
-        free = Matrix.zero(self.rank(), 0)
+        free = Matrix.zero(self.rank(), 1)
         for j in range(len(r)):
             if j not in pc:
                 free = free.hjoin(r[j])
-        width = free.n()
-        ident = Matrix.identity(width)
+        width = free.n() - 1
+        ident = Matrix.identity(width + 1)
         fRow = 0
         iRow = 0
         null = Matrix.zero(len(r), width)
         for i in range(len(r)):
             if i in pc:
                 for j in range(width):
-                    null[i, j] = -(free[fRow, j])
+                    null[i, j] = -(free[fRow, j+1])
                     fRow += 1
             else:
                 for j in range(width):
                     null[i, j] = ident[iRow, j]
-        return VSpace(null.data, trust=True)
+        return VSpace([Matrix(vec) for vec in null.data], trust=True)
+
+    def isnull(self):
+        """Return True iff all the entries are 0."""
+        for col in self.data:
+            for cell in col:
+                if cell != 0:
+                    return False
+        return True
+
+    def cv(self):
+        """Turn self into a column vector."""
+        if self.n() != 1:
+            raise DimensionError
+        return CV(self.t().data[0])
+
+    def dot(self, b):
+        """Return a dot b."""
+        return (self.t() * b)[0, 0]
+
+    def orthogonal(self, b):
+        """Return True iff orthogonal to b."""
+        return self.dot(b) == 0
+
+    def magnitude(self):
+        """Return the magnitude."""
+        return math.sqrt(self.dot(self))
+
+    ortho = orthogonal
+    mag = magnitude
 
 
 class VSpace():
@@ -325,7 +376,7 @@ class VSpace():
         if trust:
             self.basis = elements
         else:
-            A = Matrix(elements)
+            A = Matrix([vec.data[0] for vec in elements])
             self.basis = A.t().col().basis
 
     def dim(self):
@@ -343,3 +394,125 @@ class VSpace():
     def contains(self, x):
         """Return True iff the vector space contains x."""
         return (self.dim() == VSpace(self.basis + [x]).dim())
+
+
+class ArithTest(unittest.TestCase):
+    """Test arithmetic."""
+
+    def setUp(self):
+        """Set-up."""
+        self.A = Matrix([[7, 21, 3], [-47, 14, 3]])
+        self.B = Matrix([[55, -21, 13, -27],
+                         [37, 51, 15, 12],
+                         [56, -7, 52, -4]])
+        self.C = Matrix([[3, 4, 0], [-1, 0, 2]])
+        self.D = Matrix([[1, 0, 1], [-2, -3, 1], [3, 3, 0]])
+        self.E = Matrix([[1, 0, 1], [-2, -3, 1], [3, 3, 1]])
+        self.x = Matrix([1, 2, 3])
+        self.sum = Matrix([[10, 25, 3], [-48, 14, 5]])
+        self.alsoA = Matrix([[7, 21, 3], [-47, 14, 3]])
+        self.product = Matrix([[1330, 903, 562, 51],
+                               [-1899, 1680, -245, 1425]])
+
+    def test_eq(self):
+        """Test equality."""
+        self.assertEqual(self.A, self.alsoA)
+
+    def test_matrix_mult(self):
+        """Test matrix multiplication."""
+        self.assertEqual(self.A*self.B, self.product)
+        self.assertRaises(DimensionError, self.A.__mul__, self.C)
+
+    def test_scalar_mult_div(self):
+        """Test scalar multiplication and division."""
+        self.assertEqual(self.x * 2, Matrix([2, 4, 6]))
+        self.assertEqual(-3 * self.x, Matrix([-3, -6, -9]))
+        self.assertEqual(self.x / 2, Matrix([.5, 1, 1.5]))
+
+    def test_matrix_add_sub_neg(self):
+        """Test matrix addition, negation and subtraction."""
+        self.assertEqual(self.A + self.C, self.sum)
+        self.assertRaises(DimensionError, self.A.__add__, self.B)
+        self.assertEqual(self.sum - self.A, self.C)
+
+    def test_rref(self):
+        """Test RREF."""
+        self.assertEqual(self.A.rref(),
+                         Matrix([[1.0, 0.0, -0.01935483870967747],
+                                 [0.0, 1.0, 0.14930875576036867]]))
+        self.assertEqual(self.A.rank(), 2)
+        self.assertEqual(self.D.rank(), 2)
+
+    def test_null(self):
+        """Test nullspace."""
+        self.assertTrue(self.D.null().contains(Matrix([-1, 1, 1])))
+        self.assertTrue(self.B.t().null().b() == [])
+
+    def test_col(self):
+        """Test column space."""
+        self.assertTrue(self.D.col().contains(Matrix([0, 0, 0])))
+        self.assertTrue(self.D.col().contains(Matrix([2, -4, 6])))
+        self.assertFalse(self.D.col().contains(Matrix([2, -1, 0])))
+
+    def test_t(self):
+        """Test transpose."""
+        self.assertEqual(self.A.t(), Matrix([[7, -47], [21, 14], [3, 3]]))
+
+    def test_inv_id(self):
+        """Test inverse and identity."""
+        self.assertEqual(self.E.inv()*self.E, Matrix.i(3))
+        self.assertRaises(DimensionError, self.B.inv)
+        self.assertRaises(NotInvertibleError, self.D.inv)
+
+    def test_join_hslice(self):
+        """Test vjoin, hjoin and hslice."""
+        self.assertEqual(self.A.hjoin(self.C),
+                         Matrix([[7, 21, 3, 3, 4, 0],
+                                 [-47, 14, 3, -1, 0, 2]]))
+        self.assertEqual(self.A.hjoin(self.C).hslice(0, 3), self.A)
+        self.assertEqual(self.A.vjoin(self.C),
+                         Matrix([[7, 21, 3],
+                                 [-47, 14, 3],
+                                 [3, 4, 0],
+                                 [-1, 0, 2]]))
+
+    def test_symm(self):
+        """Test symmetry."""
+        self.assertTrue((self.A.t()*self.A).symm())
+        self.assertFalse((self.A.t()*self.C).symm())
+
+    def test_get_set(self):
+        """Test getting and setting items."""
+        changed = self.A
+        changed[1, 1] = -5
+        self.assertEqual(self.A[1, 1], -5)
+        self.assertEqual(self.A[1, 2], 3)
+
+    def test_zero(self):
+        """Test zero."""
+        self.assertEqual(Matrix.zero(2, 3), Matrix([[0, 0, 0], [0, 0, 0]]))
+
+    def test_solve(self):
+        """Test solve."""
+        self.assertEqual(self.E.solve(Matrix([1, 2, 3])),
+                         Matrix([-3.0, 2.666666666666667, 4.0]))
+
+    def test_b_indep(self):
+        """Test basis and independence."""
+        S = self.B.t().col()
+        for u in S.b():
+            self.assertTrue(S.contains(u))
+            for v in S.b():
+                self.assertTrue(u.hjoin(v).indep() or u == v)
+
+    def test_dim(self):
+        """Test dimension of a vector space."""
+        S = self.B.t().col()
+        self.assertEqual(S.dim(), 3)
+
+    def test_ortho(self):
+        """Test orthogonality."""
+        A = Matrix([1, 2, 3])
+        B = Matrix([1, 1, -1])
+        self.assertTrue(A.ortho(B))
+        self.assertFalse(A.ortho(A))
