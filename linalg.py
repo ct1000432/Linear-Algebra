@@ -346,12 +346,6 @@ class Matrix():
                     return False
         return True
 
-    def cv(self):
-        """Turn self into a column vector."""
-        if self.n() != 1:
-            raise DimensionError
-        return CV(self.t().data[0])
-
     def dot(self, b):
         """Return a dot b."""
         return (self.t() * b)[0, 0]
