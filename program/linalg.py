@@ -147,7 +147,7 @@ class Matrix():
     def cjoin(self, b):
         """Join horizontally: [A B]."""
         return Matrix(self.t().data + b.t().data).t()
-        # TODO: Make cjoin more efficient
+        # TODO: Make cjoin more efficient id:0 gh:30
 
     def rjoin(self, b):
         """Join vertically."""
